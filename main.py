@@ -19,9 +19,23 @@ class Layer_Dense:
         pass
 
 
+class Activation_ReLU:
+    
+    def forward(self, inputs):
+        self.output = np.maximum(0, inputs)
+
+
+
 X,y = spiral_data(samples=100, classes = 3)
 
 dense1 = Layer_Dense(2,3)
+
+activation1 = Activation_ReLU()
+
 dense1.forward(X)
 
-print(dense1.output[:5])
+activation1.forward(dense1.output)
+
+print(activation1.output[:5])
+
+
