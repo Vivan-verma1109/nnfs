@@ -1,6 +1,9 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import nnfs
 from nnfs.datasets import spiral_data
+from nnfs.datasets import sine_data
+
 
 nnfs.init()
 
@@ -52,7 +55,7 @@ class Layer_Dense:
         self.dinputs = np.dot(dvalues,self.weights.T)
 
     
-#ReLU_Activation
+#ReLU_Activation f(x) = max(0, x): 
 class Activation_ReLU:
     
     #forward pass
@@ -118,7 +121,7 @@ class Loss:
     
     
     
-#Loss_CategoricalCrossentropy
+#Loss_CategoricalCrossentropy L = - (1/N) * Σ(y_ij * log(p_ij))
 class Loss_CategoricalCrossentropy(Loss):
     
     
@@ -406,22 +409,55 @@ class Loss_BinaryCrossentropy(Loss):
                          (1 - y_true) / (1 - clipped_dvalues)) / outputs
         # Normalize gradient
         self.dinputs = self.dinputs / samples
+    
+    class Linear_Actvation:
+        
+        #forward pass
+        def forward(self, inputs):
+            self.inputs = inputs
+            self.output = inputs
+        
+        def backward(self, dvalues):
+            self.dinputs = dvalues.copy()
 
+    #mean squared error , you square the difference between the predicted and true values of single outputs
+    class Loss_MeanSquaredError(Loss):
+        
+        def forward(self, y_pred, y_true):
+            
+            sample_losses = np.mean((y_true - y_pred) ** 2 , axis =- 1 )
+            return sample_losses
+        
+        def backward(self , dvalues , y_true):
+            samples = len(dvalues)
+            outputs = len(dvalues[0])
+            
+            self.dinputs = -2 * (y_true - dvalues) / outputs
+            
+            self.dinputs /= samples
+            
+            
 
-
-
-
-
-
-
-
-
+    #With mean absolute error , you take the absolute difference between the predicted and true values in a single output and average those absolute values.
+    class Loss_MeanAbsoluteError(Loss):
+        
+        def forward(self, y_pred, y_true):
+            sample_losses = np.mean(np.abs(y_pred - y_true), axis = -1)
+            return sample_losses
+        
+        def backward(self, dvalues, y_true):
+            samples = len(dvalues)
+            outputs = len(dvalues[0])
+            
+            self.dinputs = np.sign(y_true - dvalues) / outputs    
+            self.dinputs /= samples
+        
 
 
 
 #HERE WE CALL THE FUCNTIONS THEMSELVES AND PASS DATA, ABOVE IS JUST THE CLASSES
 #create dataset
-X, y = spiral_data(samples = 100,classes = 2)
+X, y = sine_data()
 
 #Reshape labels to be a list of lists 
 #Inner list contains one output (either 0 or 1)
@@ -444,6 +480,15 @@ activation2 = Activation_Sigmoid()
 loss_function = Loss_BinaryCrossentropy()
 
 optimizer = Optimizer_Adam(decay = 5e-7)
+
+# Accuracy precision for accuracy calculation 
+# # There really are no accuracy factor for regression problem, 
+# # but we can simulate/approximate it. We'll calculate it by checking 
+# # how many values have a difference to their ground truth equivalent 
+# # less than given precision
+# # We'll calculate this precision as a fraction of standard deviation
+# # of al the ground truth values
+accuracy_precision = np.std(y) / 250
 
 for epoch in range(10001):
 
@@ -474,7 +519,7 @@ for epoch in range(10001):
     # of True/False values, multiplying it by 1 changes it into array 
     # of 1s and 0s
     predictions = (activation2.output > 0.5) * 1 
-    accuracy = np.mean(predictions == y)
+    accuracy = np.mean(np.absolute(predictions - y) < accuracy_precision)
 
     if not epoch % 100:
         print( f'epoch:{epoch}, '+
@@ -499,7 +544,7 @@ for epoch in range(10001):
 
 
 # Create test dataset
-X_test, y_test = spiral_data(samples=100, classes=2)
+X_test, y_test = sine_data()
 
 # Reshape labels to be a list of lists 
 # Inner list contains one output (either 0 or 1)
