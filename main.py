@@ -16,7 +16,7 @@ class Layer_Dense:
         self.biases_regularizer_l1 = biases_regularizer_l1
         self.biases_regularizer_l2 = biases_regularizer_l2
 
-    def forward(self, inputs):
+    def forward(self, inputs, training):
         self.inputs = inputs
         self.output = np.dot(inputs, self.weights) + self.biases
 
@@ -44,10 +44,10 @@ class Layer_Dense:
 
 class Activation_ReLU:
     
-    def predictions(self, outputs):
+    def predictions(self, outputs, training):
         return outputs
     
-    def forward(self, inputs):
+    def forward(self, inputs,):
         self.input = inputs
         self.output = np.maximum(0, inputs)
 
@@ -57,7 +57,7 @@ class Activation_ReLU:
 
 class Activation_Softmax:
     
-    def predictions(self, outputs):
+    def predictions(self, outputs, training):
         return np.argmax(outputs, axis = 1)
     
     def forward(self, inputs):
@@ -76,7 +76,7 @@ class Activation_Softmax:
 
 class Activation_Sigmoid:
     
-    def predictions(self, outputs):
+    def predictions(self, outputs, training):
         return (outputs > 0.5) * 1
     
     def forward(self, inputs):
@@ -88,7 +88,7 @@ class Activation_Sigmoid:
 
 class Activation_Linear:
     
-    def predictions(self, outputs):
+    def predictions(self, outputs, training):
         return outputs
     
     def forward(self, inputs):
@@ -339,7 +339,7 @@ class Loss_MeanSquaredError(Loss):
         self.dinputs = self.dinputs / samples
     
 class Layer_Input:
-    def forward(self, inputs):
+    def forward(self, inputs, training):
         self.output = inputs
     
     def finalize(self):
