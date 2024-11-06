@@ -1,17 +1,18 @@
 import numpy as np
 import nnfs
 from nnfs.datasets import sine_data
+from nnfs.datasets import spiral_data
 import matplotlib.pyplot as plt
 
 nnfs.init()
 
 class Layer_Dense:
-    def __init__(self, n_inputs, n_neurons, weights_regularizer_l1=0, weights_regularizer_l2=0,
+    def __init__(self, n_inputs, n_neurons, weight_regularizer_l1=0, weight_regularizer_l2=0,
                  biases_regularizer_l1=0, biases_regularizer_l2=0):
         self.weights = 0.1 * np.random.randn(n_inputs, n_neurons)
         self.biases = np.zeros((1, n_neurons))
-        self.weights_regularizer_l1 = weights_regularizer_l1
-        self.weights_regularizer_l2 = weights_regularizer_l2
+        self.weight_regularizer_l1 = weight_regularizer_l1
+        self.weight_regularizer_l2 = weight_regularizer_l2
         self.biases_regularizer_l1 = biases_regularizer_l1
         self.biases_regularizer_l2 = biases_regularizer_l2
 
@@ -23,13 +24,13 @@ class Layer_Dense:
         self.dweights = np.dot(self.inputs.T, dvalues)
         self.dbiases = np.sum(dvalues, axis=0, keepdims=True)
 
-        if self.weights_regularizer_l1 > 0:
+        if self.weight_regularizer_l1 > 0:
             dL1 = np.ones_like(self.weights)
             dL1[self.weights < 0] = -1
-            self.dweights += self.weights_regularizer_l1 * dL1
+            self.dweights += self.weight_regularizer_l1 * dL1
 
-        if self.weights_regularizer_l2 > 0:
-            self.dweights += 2 * self.weights_regularizer_l2 * self.weights
+        if self.weight_regularizer_l2 > 0:
+            self.dweights += 2 * self.weight_regularizer_l2 * self.weights
 
         if self.biases_regularizer_l1 > 0:
             dL1 = np.ones_like(self.biases)
@@ -40,21 +41,6 @@ class Layer_Dense:
             self.dbiases += 2 * self.biases_regularizer_l2 * self.biases
 
         self.dinputs = np.dot(dvalues, self.weights.T)
-
-
-
-class Layer_Dropout:
-    def __init__(self, rate):
-        self.rate = 1 - rate
-
-    def forward(self, inputs):
-        self.input = inputs
-        self.binary_mask = np.random.binomial(1, self.rate, size=inputs.shape) / self.rate
-        self.output = inputs * self.binary_mask
-
-    def backward(self, dvalues):
-        self.dinputs = dvalues * self.binary_mask
-
 
 class Activation_ReLU:
     
@@ -201,13 +187,13 @@ class Loss:
 
             # L1 regularization - weights
             # calculate only when factor greater than 0
-            if layer.weights_regularizer_l1 > 0:
-                regularization_loss += layer.weights_regularizer_l1 * \
+            if layer.weight_regularizer_l1 > 0:
+                regularization_loss += layer.weight_regularizer_l1 * \
                     np.sum(np.abs(layer.weights))
 
             # L2 regularization - weights
-            if layer.weights_regularizer_l2 > 0:
-                regularization_loss += layer.weights_regularizer_l2 * \
+            if layer.weight_regularizer_l2 > 0:
+                regularization_loss += layer.weight_regularizer_l2 * \
                     np.sum(layer.weights * layer.weights)
 
             # L1 regularization - biases
@@ -229,17 +215,99 @@ class Loss:
 
     # Calculates the data and regularization losses
     # given model output and ground truth values
-    def calculate(self, output, y):
+    def calculate(self, output, y, *, include_regularization = False):
         # Calculate sample losses
         sample_losses = self.forward(output, y)
 
         # Calculate mean loss
         data_loss = np.mean(sample_losses)
+        
+        if not include_regularization:
+            return data_loss
 
         # Return the data and regularization losses
         return data_loss, self.regularization_loss()
+    
+# Cross-entropy loss
+class Loss_CategoricalCrossentropy(Loss):
+    ...
+    # Backward pass
+    def backward(self, dvalues, y_true):
+        
+        # Number of samples
+        samples = len(dvalues)
+        # Number of labels in every sample
+        # We'll use the first sample to count them
+        labels = len(dvalues[0])
+        
+        # If labels are sparse, turn them into one-hot vector
+        if len(y_true.shape) == 1:
+            y_true = np.eye(labels)[y_true]
+        
+        # Calculate gradient
+        self.dinputs = -y_true / dvalues
+        # Normalize gradient
+        self.dinputs = self.dinputs / samples
 
 
+
+# Binary cross-entropy loss
+class Loss_BinaryCrossentropy(Loss):
+
+    # Forward pass
+    def forward(self, y_pred, y_true):
+
+        # Clip data to prevent division by 0
+        # Clip both sides to not drag mean towards any value
+        y_pred_clipped = np.clip(y_pred, 1e-7, 1 - 1e-7)
+
+        # Calculate sample-wise loss
+        sample_losses = -(y_true * np.log(y_pred_clipped) +
+                          (1 - y_true) * np.log(1 - y_pred_clipped))
+        sample_losses = np.mean(sample_losses, axis=-1)
+
+        # Return losses
+        return sample_losses
+
+    # Backward pass
+    def backward(self, dvalues, y_true):
+
+        # Number of samples
+        samples = len(dvalues)
+        # Number of outputs in every sample
+        # We'll use the first sample to count them
+        outputs = len(dvalues[0])
+
+        # Clip data to prevent division by 0
+        # Clip both sides to not drag mean towards any value
+        clipped_dvalues = np.clip(dvalues, 1e-7, 1 - 1e-7)
+
+        # Calculate gradient
+        self.dinputs = -(y_true / clipped_dvalues -
+                         (1 - y_true) / (1 - clipped_dvalues)) / outputs
+
+        # Normalize gradient
+        self.dinputs = self.dinputs / samples
+
+
+# Softmax classifier - combined Softmax activation
+# and cross-entropy loss for faster backward step
+class Activation_Softmax_Loss_CategoricalCrossentropy():
+
+    # Backward pass
+    def backward(self, dvalues, y_true):
+        
+        # Number of samples
+        samples = len(dvalues)
+        
+        # Copy so we can safely modify
+        self.dinputs = dvalues.copy()
+        # Calculate gradient
+        self.dinputs[range(samples), y_true] -= 1
+        # Normalize gradient
+        self.dinputs = self.dinputs / samples
+
+    
 class Accuracy:
     def calculate(self, predictions, y):
         comparisions = self.compare(predictions, y)
@@ -270,6 +338,55 @@ class Loss_MeanSquaredError(Loss):
         self.dinputs = -2 * (y_true - dvalues) / outputs
         self.dinputs = self.dinputs / samples
     
+class Layer_Input:
+    def forward(self, inputs):
+        self.output = inputs
+    
+    def finalize(self):
+        self.input_layer = Layer_Input()
+        
+        layer_count = len(self.layers)
+        
+        for i in range(layer_count):
+            if i == 0:
+                self.layers[i].prev = self.input_layer[i - 1]
+                self.layers[i].next = self.layers[i + 1]
+            
+            elif i < layer_count - 1:
+                self.layers[i].prev = self.input_layer[i - 1]
+                self.layers[i].next = self.loss
+            
+            else: 
+                self.layers[i].prev = self.input_layer[i - 1]
+                self.layers[i].next = self.loss
+
+class Layer_Dropout:
+    def __init__(self, rate):
+        self.rate = rate
+    
+    def forward(self, inputs, training):
+        self.input = inputs
+        
+        if not training:
+            self.output = inputs.copy()    
+            return
+        
+        self.binary_mask = np.random.binomial(1, self.rate, size=inputs.shape) / self.rate
+        self.output = inputs * self.binary_mask
+    
+    def backward(self, dvalues):
+        self.dinputs = dvalues * self.binary_mask
+
+
+class Accuracy_Categorical(Accuracy):
+    def init(self, y):
+        pass
+    
+    def compare(self, predictions, y):
+        if len(y.shape) == 2:
+            y = np.argmax(y, axis = 1)
+        return predictions == y
+
 # Model class
 class Model:
 
@@ -277,7 +394,7 @@ class Model:
         # Create a list of network objects
         self.layers = []
         # Initialize trainable_layers as an empty list
-        self.trainable_layers = []
+        self.softmax_classifier_output = None
 
     # Add objects to the model
     def add(self, layer):
@@ -296,6 +413,8 @@ class Model:
         
         # Count all the objects
         layer_count = len(self.layers)
+        
+        self.trainable_layers = []
         
         # Iterate the objects
         for i in range(layer_count):
@@ -322,10 +441,20 @@ class Model:
        
         # Remember trainable layers in the loss object
         self.loss.remember_trainable_layers(self.trainable_layers)
+        
+        # If output activation is Softmax and
+        # loss function is Categorical Cross-Entropy
+        # create an object of combined activation
+        # and loss function containing
+        # faster gradient calculation
+        if isinstance(self.layers[-1], Activation_Softmax) and isinstance(self.loss, Loss_CategoricalCrossentropy):
+            # Create an object of combined activation
+            # and loss functions
+            self.softmax_classifier_output = Activation_Softmax_Loss_CategoricalCrossentropy()
 
 
     # Train the model
-    def train(self, X, y, *, epochs=1, print_every=1):
+    def train(self, X, y, *, epochs = 1, print_every = 1, validation_data = None):
 
         # Initialize accuracy object
         self.accuracy.init(y)
@@ -334,11 +463,10 @@ class Model:
         for epoch in range(1, epochs + 1):
 
             # Perform the forward pass
-            output = self.forward(X)
+            output = self.forward(X, training = True)
 
             # Calculate loss
-            data_loss, regularization_loss = \
-                self.loss.calculate(output, y)
+            data_loss, regularization_loss = self.loss.calculate(output, y, include_regularization = True)
             loss = data_loss + regularization_loss
 
             # Get predictions and calculate an accuracy
@@ -363,80 +491,82 @@ class Model:
                     f'reg_loss: {regularization_loss:.3f}), ' +
                     f'lr: {self.optimizer.current_learning_rate}')
 
+            if validation_data is not None:
+                X_val, y_val = validation_data
+                
+                output = self.forward(X_val, training = False)
+                loss = self.loss.calculate(output, y_val)
+
+                predictions = self.output_layer_activation.predictions(output)
+                accuracy = self.accuracy.calculate(predictions, y_val)
+
+                print(f'validation, ' +
+                    f'acc: {accuracy:.3f}, ' +
+                    f'loss: {loss:.3f}')
+
+                
     def set(self, *, loss, optimizer, accuracy):
         self.loss = loss
         self.optimizer = optimizer
         self.accuracy = accuracy
 
     # Performs forward pass
-    def forward(self, X):
+    def forward(self, X, training):
         # Call forward method on the input layer
         # this will set the output property that
         # the first layer in "prev" object is expecting
-        self.input_layer.forward(X)
+        self.input_layer.forward(X, training)
         
         # Call forward method of every object in a chain
         # Pass output of the previous object as a parameter
         for layer in self.layers:
-            layer.forward(layer.prev.output)
+            layer.forward(layer.prev.output, training)
         
         # "layer" is now the last object from the list,
         # return its output
         return layer.output
     
-    def backward(self ,output, y):
-    # First call backward method on the loss
-    # this will set dinputs property that the last
-    # layer will try to access shortly
+    def backward(self ,output, y):                
+        if self.softmax_classifier_output is not None:
+        # First call backward method
+        # on the combined activation/loss
+        # this will set dinputs property
+            self.softmax_classifier_output.backward(output, y)
+            self.layers[-1].dinputs = self.softmax_classifier_output.dinputs
+            
+            for layer in reversed(self.layers[:-1]):
+                layer.backward(layer.next.dinputs)
+            return 
+        # First call backward method on the loss
+        # this will set dinputs property that the last
+        # layer will try to access shortly
         self.loss.backward(output, y)    
         
         for layer in reversed(self.layers):
             layer.backward(layer.next.dinputs)   
-        
-
-class Layer_Input:
-    def forward(self, inputs):
-        self.output = inputs
-    
-    def finalize(self):
-        self.input_layer = Layer_Input()
-        
-        layer_count = len(self.layers)
-        
-        for i in range(layer_count):
-            if i == 0:
-                self.layers[i].prev = self.input_layer[i - 1]
-                self.layers[i].next = self.layers[i + 1]
-            
-            elif i < layer_count - 1:
-                self.layers[i].prev = self.input_layer[i - 1]
-                self.layers[i].next = self.loss
-            
-            else: 
-                self.layers[i].prev = self.input_layer[i - 1]
-                self.layers[i].next = self.loss
 
 
+X, y = spiral_data(samples = 100, classes = 2)
+X_test, y_test = spiral_data(samples = 100, classes = 2)
 
-X, y = sine_data()
-
+# Initialization
 model = Model()
 
-# layers activations
-model.add(Layer_Dense(1, 64))
+# Adding layers
+model.add(Layer_Dense(2, 512, weight_regularizer_l2=5e-4, biases_regularizer_l2=5e-4))
 model.add(Activation_ReLU())
-model.add(Layer_Dense(64, 64))
-model.add(Activation_ReLU())
-model.add(Layer_Dense(64, 1))
-model.add(Activation_Linear())
+model.add(Layer_Dropout(0.1))
+model.add(Layer_Dense(512, 3))
+model.add(Activation_Softmax())
 
-# loss function optimizer
-model.set(
-loss = Loss_MeanSquaredError(),
-optimizer = Optimizer_Adam(learning_rate=0.005, decay=1e-3),
-accuracy  = Accuracy_Regression()
-)
+# Setting loss, optimizer, and accuracy
+model.set(loss=Loss_CategoricalCrossentropy(),
+          optimizer=Optimizer_Adam(learning_rate=0.05, decay=5e-5),
+          accuracy=Accuracy_Categorical())
 
+# Finalizing the model
 model.finalize()
-model.train(X, y, epochs = 10000, print_every = 100)
+
+# Training the model
+model.train(X, y, validation_data=(X_test, y_test), epochs=10000, print_every=100)
 
