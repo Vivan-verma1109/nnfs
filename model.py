@@ -644,7 +644,11 @@ def create_dataset_mnist(path):
     X_test, y_test = load_mnist_dataset('test', path)
     return X, y, X_test, y_test
 
-
+################################################################################################
+#Training begins in the lines that are following this segment
+#Make sure that all stuff above is working beforehand
+#So much code damn
+################################################################################################
 
 
 
