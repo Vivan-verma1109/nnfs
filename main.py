@@ -1,8 +1,10 @@
-import numpy as np
 import nnfs
 from nnfs.datasets import sine_data
 from nnfs.datasets import spiral_data
 import matplotlib.pyplot as plt
+import os
+import cv2
+import numpy as np
 
 nnfs.init()
 
@@ -59,7 +61,7 @@ class Activation_ReLU:
 
 class Activation_Softmax:
     
-    def predictions(self, outputs, training):
+    def predictions(self, outputs):
         return np.argmax(outputs, axis = 1)
     
     def forward(self, inputs, training):
@@ -625,22 +627,62 @@ class Model:
                     f'acc: {validation_accuracy:.3f}, ' +
                     f'loss: {validation_loss:.3f}')
 
+def load_mnist_dataset(dataset, path):
+    labels = os.listdir(os.path.join(path, dataset))
+    X = []
+    y = []
+    
+    for label in labels:
+        for file in os.listdir(os.path.join(path, dataset, label)):
+            image = cv2.imread(os.path.join(path, dataset, label, file), cv2.IMREAD_UNCHANGED)
+        X.append(image)
+        y.append(label)
+    return np.array(X), np.array(y).astype("uint8")
 
-# Initialize data and model
-X, y = spiral_data(samples=100, classes=2)
-X_test, y_test = spiral_data(samples=100, classes=2)
+def create_dataset_mnist(path):
+    X, y = load_mnist_dataset('train', path)
+    X_test, y_test = load_mnist_dataset('test', path)
+    return X, y, X_test, y_test
 
+
+
+
+
+X, y, X_test, y_test = create_dataset_mnist('fashion_mnist_images')
+
+
+
+keys = np.array(range(X.shape[0]))
+np.random.shuffle(keys)
+X = X[keys]
+y = y[keys]
+
+X = X.reshape(X.shape[0], -1)
+X_test = X_test.reshape(X.shape[0], -1)
+X = (X.astype(np.float32) - 127.5) / 127.5
+X_test = (X_test.astype(np.float32) - 127.5) / 127.5
+
+# Instantiate the model
 model = Model()
-model.add(Layer_Dense(2, 512, weight_regularizer_l2=5e-4, biases_regularizer_l2=5e-4))
+
+# Add layers
+model.add(Layer_Dense(X.shape[1], 64))
 model.add(Activation_ReLU())
-model.add(Layer_Dropout(0.1))
-model.add(Layer_Dense(512, 3))
+model.add(Layer_Dense(64, 64))
+model.add(Activation_ReLU())
+model.add(Layer_Dense(64, 10))
 model.add(Activation_Softmax())
 
-# Set loss, optimizer, and accuracy
-model.set(loss=Loss_CategoricalCrossentropy(),
-          optimizer=Optimizer_Adam(learning_rate=0.05, decay=5e-5),
-          accuracy=Accuracy_Categorical())
+# Set loss, optimizer and accuracy objects
+model.set(
+    loss=Loss_CategoricalCrossentropy(),
+    optimizer=Optimizer_Adam(decay=1e-4),
+    accuracy=Accuracy_Categorical()
+)
 
+# Finalize the model
 model.finalize()
-model.train(X, y, validation_data=(X_test, y_test), epochs=10000, print_every=100)
+
+# Train the model
+model.train(X, y, validation_data=(X_test, y_test),
+            epochs=10, batch_size=128, print_every=100)
