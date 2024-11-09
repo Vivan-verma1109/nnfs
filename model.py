@@ -647,6 +647,35 @@ class Model:
         with open(path, 'wb') as f:
             pickle.dump(model, f)
         
+    def predict(self, X, *, batch_size=None):
+        predictions_steps = 1
+        
+        if batch_size is not None:
+            predictions_steps = len(X) // batch_size
+            if predictions_steps * batch_size < len(X):
+                predictions_steps += 1
+        
+        output = []
+        
+        for step in range(predictions_steps):
+            if batch_size is not None:
+                batch_X = X[step * batch_size:(step + 1) * batch_size]
+            else:
+                batch_X = X
+            
+            batch_output = self.forward(batch_X, training=False)
+            output.append(batch_output)
+        
+        return np.vstack(output)
+
+                     
+    @staticmethod
+    def load(path):
+        with open(path, "rb") as f:
+            model = pickle.load(f)
+        return model
+                
+        
 
 def load_mnist_dataset(dataset, path):
     labels = os.listdir(os.path.join(path, dataset))
@@ -673,33 +702,35 @@ def create_dataset_mnist(path):
 
 
 
+
+
 # Training setup
+fashion_mnist_labels = {
+    0: 'T-shirt/top',
+    1: 'Trouser',
+    2: 'Pullover',
+    3: 'Dress',
+    4: 'Coat',
+    5: 'Sandal',
+    6: 'Shirt',
+    7: 'Sneaker',
+    8: 'Bag',
+    9: 'Ankle boot'
+}
+
+
 X, y, X_test, y_test = create_dataset_mnist('fashion_mnist_images')
-keys = np.array(range(X.shape[0]))
-np.random.shuffle(keys)
-X = X[keys]
-y = y[keys]
 
 X = (X.reshape(X.shape[0], -1).astype(np.float32) - 127.5) / 127.5
+
 X_test = (X_test.reshape(X_test.shape[0], -1).astype(np.float32) - 127.5) / 127.5
 
-# Instantiate and configure the model
-model = Model()
-model.add(Layer_Dense(X.shape[1], 128))
-model.add(Activation_ReLU())
-model.add(Layer_Dense(128, 128))
-model.add(Activation_ReLU())
-model.add(Layer_Dense(128, 10))
-model.add(Activation_Softmax())
+model = Model.load('fashion_mnist.model')
 
-model.set(
-    loss=Loss_CategoricalCrossentropy(),
-    accuracy=Accuracy_Categorical()
-)
-model.finalize()
+confidences = model.predict(X_test[:5])
+predictions = model.output_layer_activation.predictions(confidences)
 
-model.load_parameters('fashion_mnist.parms')
+for prediction in predictions:
+    print(fashion_mnist_labels[prediction])
 
-model.save('fashion_mnist.model')
-
-model.evaluate(X_test, y_test)
+print(y_test[:5])
