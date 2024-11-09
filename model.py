@@ -1,8 +1,10 @@
 import nnfs
 from nnfs.datasets import sine_data
 from nnfs.datasets import spiral_data
-import matplotlib.pyplot as plt
+import pickle
 import os
+import copy
+import matplotlib as plt
 import cv2
 import numpy as np
 
@@ -44,8 +46,13 @@ class Layer_Dense:
 
         self.dinputs = np.dot(dvalues, self.weights.T)
         
-        def get_parameters(self):
-            return self.weights, self.biases
+    def get_parameters(self):
+        return self.weights, self.biases
+    
+    def set_parameters(self, weights, biases):
+        self.weights = weights
+        self.biases = biases
+        
 
 class Activation_ReLU:
     def predictions(self, outputs, training):
@@ -448,10 +455,13 @@ class Model:
     def add(self, layer):
         self.layers.append(layer)
 
-    def set(self, *, loss, optimizer, accuracy):
-        self.loss = loss
-        self.optimizer = optimizer
-        self.accuracy = accuracy
+    def set(self, *, loss = None, optimizer = None, accuracy = None):
+        if loss is not None:
+            self.loss = loss
+        if optimizer is not None:
+            self.optimizer = optimizer
+        if accuracy is not None:
+            self.accuracy = accuracy
 
     def finalize(self):
         self.input_layer = Layer_Input()
@@ -473,7 +483,8 @@ class Model:
             if hasattr(self.layers[i], "weights"):
                 self.trainable_layers.append(self.layers[i])
 
-        self.loss.remember_trainable_layers(self.trainable_layers)
+        if self.loss is not None:
+            self.loss.remember_trainable_layers(self.trainable_layers)
 
         if isinstance(self.layers[-1], Activation_Softmax) and isinstance(self.loss, Loss_CategoricalCrossentropy):
             self.softmax_classifier_output = Activation_Softmax_Loss_CategoricalCrossentropy()
@@ -592,6 +603,50 @@ class Model:
         print(f'validation, ' +
               f'acc: {validation_accuracy:.3f}, ' +
               f'loss: {validation_loss:.3f}')
+    #this will be used to see if neurons are exploding up or are dead
+    def get_parameters(self):
+        parameters = []
+        
+        for layer in self.trainable_layers:
+            parameters.append(layer.get_parameters())
+        
+        return parameters
+
+    def set_parameters(self, parameters):
+        for parameter_set, layer in zip(parameters, self.trainable_layers):
+            layer.set_parameters(*parameter_set)
+            
+    def save_parameters(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self.get_parameters(), f)
+            
+    def load_parameters(self, path):
+        with open(path, 'rb') as f:
+            self.set_parameters(pickle.load(f))
+            
+    def save(self, path):
+        # Make a deep copy of current model instance
+        model = copy.deepcopy(self)
+
+        # Reset accumulated values in loss and accuracy objects
+        model.loss.new_pass()
+        model.accuracy.new_pass()
+
+        # Remove data from the input layer
+        # and gradients from the loss object
+        model.input_layer.__dict__.pop('output', None)
+        model.loss.__dict__.pop('dinputs', None)
+
+        # For each layer remove inputs, output and dinputs properties
+        for layer in model.layers:
+            for property in ['inputs', 'output', 'dinputs',
+                            'dweights', 'dbiases']:
+                layer.__dict__.pop(property, None)
+
+        # Open a file in the binary-write mode and save the model
+        with open(path, 'wb') as f:
+            pickle.dump(model, f)
+        
 
 def load_mnist_dataset(dataset, path):
     labels = os.listdir(os.path.join(path, dataset))
@@ -639,11 +694,12 @@ model.add(Activation_Softmax())
 
 model.set(
     loss=Loss_CategoricalCrossentropy(),
-    optimizer=Optimizer_Adam(decay=1e-3),
     accuracy=Accuracy_Categorical()
 )
 model.finalize()
 
-# Train the model
-model.train(X, y, validation_data=(X_test, y_test), epochs=10, batch_size=128, print_every=100)
+model.load_parameters('fashion_mnist.parms')
+
+model.save('fashion_mnist.model')
+
 model.evaluate(X_test, y_test)
